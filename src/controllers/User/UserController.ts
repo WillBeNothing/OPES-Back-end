@@ -2,12 +2,13 @@ import e, { Request, Response } from "express";
 
 import "dotenv/config"
 import * as bcrypt from "bcrypt";
-import * as jwt from 'jsonwebtoken';
 
-import { prismaClient } from "../db/prismaClient";
+import { client } from "../../db/prismaClient";
 import { Prisma } from "@prisma/client";
+import { GenarateTokenUseCase } from "../../provider/GenerateTokenUseCase";
+import { GenerateRefreshToken } from "../../provider/GenerateRefreshToken";
 
-export class CreateUserController {
+export class UserController {
     async handle (req: Request, res: Response) {
          const {
              name, 
@@ -16,7 +17,7 @@ export class CreateUserController {
 
 
          const password_hash = await bcrypt.hash(password, 8);
-         const user = await prismaClient.user.create({
+         const user = await client.user.create({
              data: {
                  character_name: name,
                  password_hash,
@@ -25,20 +26,15 @@ export class CreateUserController {
             if (e.code == "P2002") res.status(401).json("The user already exists.")
         });
 
-         if(user) {
-            const userID = user.id;
-
-            const auth: string = process.env.AUTH_SECRET
-            const token = jwt.sign({userID}, auth);
-            return res.json(token);
-         }
-         
+        return res.json({
+            message: "User created!"
+        })
     }
 
     async session (req: Request, res: Response) {
         const { username, password } = req.body;
 
-        const user = await prismaClient.user.findFirst({
+        const user = await client.user.findFirst({
             where: {
                 character_name: username
             }
@@ -50,12 +46,19 @@ export class CreateUserController {
 
             if (!checkpassword) { return res.status(401).json("Invalid password.")}
             
-            const userID = user.id
+            const {id, role} = user
 
-            const auth: string = process.env.AUTH_SECRET
-            const token = jwt.sign({userID}, auth);
+            const generateToken = new GenarateTokenUseCase;
+            const token = await generateToken.execute(id, role);
 
-            return res.json({token, checkpassword}).status(200)
+            const generateRefreshToken = new GenerateRefreshToken;
+            const refreshToken = await generateRefreshToken.execute(id); 
+
+            return res.json({
+                token,
+                refreshToken, 
+                id, 
+            },).status(200)
         } else {
             return res.status(401).json("Something went wrong || user not found.");
         }
